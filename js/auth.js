@@ -5,8 +5,6 @@
 
 (function () {
 
-  // URL GET-вебхука n8n, що повертає список менеджерів
-  // Response: { "managers": [{ name, phone, email, telegram, active }] }
   const MANAGERS_WEBHOOK = 'https://n8n.rayton.net/webhook/ses-managers';
   const STORAGE_KEY = 'rayton_managers';
 
@@ -14,7 +12,22 @@
 
     const tg = window.Telegram?.WebApp;
 
-    // Не в Telegram (браузер/дев режим) — пропустити перевірку
+    // Завантажити список менеджерів
+    let managers = [];
+    try {
+      const res = await fetch(MANAGERS_WEBHOOK, { cache: 'no-store' });
+      const data = await res.json();
+      managers = data.managers || [];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(managers));
+    } catch {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) managers = JSON.parse(stored);
+    }
+
+    // Заповнити dropdown менеджерів динамічно
+    populateManagerSelect(managers);
+
+    // Не в Telegram (браузер/дев режим) — пропустити перевірку доступу
     if (!tg || !tg.initDataUnsafe) return;
 
     const username = tg.initDataUnsafe?.user?.username?.toLowerCase();
@@ -30,19 +43,6 @@
     ].join(';');
     overlay.innerHTML = '<div style="color:#888;font-size:14px">Перевірка доступу...</div>';
     document.body.appendChild(overlay);
-
-    // Завантажити список менеджерів
-    let managers = [];
-    try {
-      const res = await fetch(MANAGERS_WEBHOOK, { cache: 'no-store' });
-      const data = await res.json();
-      managers = data.managers || [];
-      // Кешувати локально
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(managers));
-    } catch {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) managers = JSON.parse(stored);
-    }
 
     // Якщо список порожній — доступ відкритий (не налаштований)
     if (managers.length === 0) {
@@ -60,6 +60,15 @@
       );
       if (me) {
         window.CURRENT_MANAGER = me;
+        // Авто-вибір поточного менеджера в dropdown
+        const sel = document.getElementById('manager');
+        if (sel) {
+          Array.from(sel.options).forEach(opt => {
+            if (opt.value === me.name || opt.text === me.name) {
+              sel.value = opt.value;
+            }
+          });
+        }
         window.dispatchEvent(new CustomEvent('authReady', { detail: me }));
       }
       overlay.remove();
@@ -77,5 +86,27 @@
     }
 
   });
+
+  function populateManagerSelect(managers) {
+    const sel = document.getElementById('manager');
+    if (!sel) return;
+
+    const active = managers.filter(m => m.active);
+    if (active.length === 0) return;
+
+    const current = sel.value;
+
+    // Залишити тільки перший option (placeholder)
+    while (sel.options.length > 1) sel.remove(1);
+
+    active.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = m.name;
+      sel.appendChild(opt);
+    });
+
+    if (current) sel.value = current;
+  }
 
 })();
